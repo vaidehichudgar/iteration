@@ -1,0 +1,233 @@
+---
+title: "writing_functions"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+library(rvest)
+library(readxl)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+```{r}
+source("sim_mean_sd.R")
+```
+
+we can simulate by running our function
+```{r}
+sim_mean_sd(n_subj = 400)
+
+```
+
+can I verify the central limit theorem?
+
+First, do it with a for loop
+for 100 trials, simulate mean and sd
+```{r}
+output = vector("list", length = 100)
+
+for (i in 1:100) {
+  
+  output[[i]] = sim_mean_sd(30)
+  
+}
+
+output |> 
+  bind_rows() |> 
+  ggplot(aes(x = mu_hat)) + 
+  geom_density()
+```
+
+
+map statment
+```{r}
+sim_results_df = 
+  expand_grid (
+    sample_size = 30,
+    iter = 1:100
+    )|> 
+  mutate(
+    results = map(sample_size, sim_mean_sd)
+  ) |> 
+  unnest(results)  
+```
+
+expand grid - every possible combination of iteration 1-100 and same size
+
+```{r}
+sim_results_df = 
+  expand_grid (
+    sample_size = c(30,60,90,120),
+    iter = 1:100
+    )|> 
+  mutate(
+    results = map(sample_size, sim_mean_sd, n_subj = 30)
+  ) |> 
+  unnest(results)
+```
+
+
+
+Let's try to summarize ..
+
+```{r}
+sim_results_df |> 
+  group_by(sample_size) |> 
+  summarize(
+    emp_mean = mean(mu_hat),
+    emp_se = sd(mu_hat)
+  )
+```
+
+## Simple Linear Regression
+
+this is how you fit linear regression
+```{r}
+sim_df = 
+  tibble(
+    x = rnorm(30, mean = 1, sd = 1),
+    y = 2 + 3 *x +rnorm(30, 0, 1)
+  )
+
+sim_df |> 
+  ggplot(aes(x=x, y=y))+
+  geom_point()
+
+slr_fit = lm(y~x, data = sim_df)
+
+coef(slr_fit)
+```
+
+we want to fit linear regression over and over again.
+turn the above into function
+
+```{r}
+sim_regression = function (n_subj, beta_0 = 2, beta_1 = 3) {
+  
+  sim_df = 
+  tibble(
+    x = rnorm(n_subj, mean = 1, sd = 1),
+    y = beta_0 + beta_1 * x + rnorm(n_subj, 0, 1)
+  )
+
+
+  slr_fit = lm(y~x, data = sim_df)
+
+  tibble(
+    beta0_hat = coef(slr_fit)[1],
+    beta1_hat = coef(slr_fit)[2]
+  )
+
+}
+```
+
+
+```{r}
+sim_regression(n_subj = 30)
+```
+
+```{r}
+vector("list", length = 500)
+
+for(i in 1:500) {
+  output[[i]] = sim_regression(n_subj = 30)
+}
+
+output |> 
+  bind_rows()
+```
+
+column that keeps track of iteration number
+```{r}
+slr_sim_results_df = 
+  expand_grid(
+    sample_size = 30,
+    iter = 1:500
+  ) |> 
+  mutate(
+    results = map(sample_size, sim_regression)
+  ) |> 
+  unnest(results)
+
+slr_sim_results_df |> 
+  ggplot(aes(x = beta0_hat, y = beta1_hat)) +
+  geom_point()
+```
+
+  # when intercept is higher, slp is lower and vice versa
+  
+  
+## one more example
+
+birthday problem - how many people do you need to put in a room to have 50% chance that 2 people have the same birthday
+
+```{r}
+birthdays = sample(1:365, 5, replace = TRUE) # you can pick same number multiple times
+
+unique(birthdays) < 5
+unique(c(1,2,3,4,5)) # the unique values that exist here
+length(unique(birthdays)) < 5 # if repeat this statement is T if no repeat then statement is false
+
+repeated_bday = length(unique(birthdays)) < 5
+```
+
+putting above into a function
+
+```{r}
+bday_sim = function(n_room) {
+  
+  birthdays = sample(1:365, n_room, replace = TRUE)
+  
+  repeated_bday = length(unique(birthdays)) < n_room
+  
+  repeated_bday 
+}
+
+bday_sim(20)
+```
+
+want to repeat the function above multiple times
+
+```{r}
+bday_sim_results = 
+  expand_grid(
+    bdays = 5:50,
+    iter = 1:50
+  ) |> 
+  mutate(
+    result = map_lgl(bdays, bday_sim)
+  ) |> 
+  group_by(
+    bdays
+  ) |> 
+  summarize(
+    prob_repeat = mean(result)
+  )
+```
+
+```{r}
+bday_sim_results |> 
+  ggplot(aes(x = bdays, y = prob_repeat)) +
+  geom_point() +
+  geom_line()
+```
+
+if you only see sig results, your study is underpowered
